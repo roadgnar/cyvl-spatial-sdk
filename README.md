@@ -2,42 +2,99 @@
 
 **Build on Cyvl's physical-world data.** Street-level imagery, dense LiDAR, and
 infrastructure layers for Somerville, MA — with full 3D↔2D projection powered by the
-same math as Cyvl's production pipeline.
+same calibration and SLAM poses as Cyvl's production pipeline.
 
 ```bash
-pip install "cyvl[viz] @ git+https://github.com/cyvl/cyvl-sdk"
+pip install "cyvl[viz] @ git+https://github.com/roadgnar/cyvl-spatial-sdk"
 ```
 
 ```python
 import cyvl
 
-scene = cyvl.load_scene("somerville")
+scene = cyvl.load_scene("somerville")          # public CDN, no credentials
 
-# Find a photo near Davis Square
-frame_id = scene.frames_near(-71.1218, 42.3967).index[0]
-frame = scene.frame(frame_id)
+frame = scene.frame(scene.frames_near(-71.1218, 42.3967).index[0])
+pts = frame.points_in_view()                   # LiDAR projected into the photo
+frame.show(overlay=pts)                        # intensity-ramped overlay
 
-# Project the surrounding LiDAR into the photo — exact pixel coordinates
-pts = frame.points_in_view(radius_m=30)
-frame.show(overlay=pts)
+xyz = frame.unproject(1920, 1400)              # any pixel -> 3D world point
+m = cyvl.measure(frame, (1500, 1500), (2400, 1500))
+print(m)                                       # Measurement(3.95 m / 12.96 ft)
 
-# Click two pixels, get a real-world measurement
-m = cyvl.measure(frame, (1700, 1200), (2100, 1180))
-print(m)  # Measurement(3.42 m / 11.22 ft)
+frame.open_viewer()                            # photo + 3D in your browser
 ```
 
-| Database signs projected onto their poles | LiDAR draped into the photo |
+| Database signs projected onto their poles | Same-pass LiDAR drape (intensity ramp) |
 |---|---|
 | ![sign projection](docs/images/sign_projection.jpg) | ![points in view](docs/images/points_in_view.jpg) |
 
-## What you get
+## What's in the box
 
-- **`Scene`** — 311k posed camera frames, 84k pavement distresses, 3.7k signs,
-  8k surface assets, 7k road markings, pavement condition scores, and a 514-tile
-  LiDAR index, all as (Geo)DataFrames.
-- **`Frame.project / unproject`** — pixels ↔ world coordinates, both directions,
-  using production camera calibration and SLAM poses.
-- **`Frame.points_in_view()`** — colored LiDAR points with exact pixel locations.
-- **`cyvl.measure(...)`** — real distances between any two pixels of a photo.
+- **311,784 posed camera frames** — every photo has a validated 6-DoF pose
+  (`camera_to_utm`) and production-calibrated intrinsics. Poses match Cyvl's
+  internal geolocation pipeline to sub-millimeter.
+- **514 LiDAR tiles as COPC** — query any street's worth of colored points over
+  HTTP in seconds (`frame.lidar()`, `scene.lidar_around()`); no bulk downloads.
+- **215k infrastructure features** — pavement condition scores, 84k distresses,
+  3.8k MUTCD-classified signs, 8.3k surface assets, 7.1k road markings, all as
+  GeoDataFrames with join keys across layers.
+- **Projection both ways** — `frame.project()` (world → pixels, with frustum and
+  distortion handling) and `frame.unproject()` (pixel → 3D via LiDAR depth).
+- **A browser viewer** — `frame.open_viewer()` renders the point cloud through
+  the photo's exact calibrated camera; drag to orbit, double-click to snap back.
 
-Docs, examples, and schema reference: see [`examples/`](examples/).
+## Examples
+
+Notebooks (start here):
+
+| | What it shows |
+|---|---|
+| [`01_quickstart`](examples/01_quickstart.ipynb) | Load the scene, explore layers, display photos, city map |
+| [`02_lidar_into_image`](examples/02_lidar_into_image.ipynb) | `points_in_view`, per-pixel depth, the 3D viewer |
+| [`03_click_to_3d_and_measure`](examples/03_click_to_3d_and_measure.ipynb) | Pixel → world coordinates, real measurements from one photo |
+| [`04_city_assets_map`](examples/04_city_assets_map.ipynb) | Cross-layer joins: worst streets, sign condition, photo evidence |
+
+Scripts (`python examples/scripts/<name>.py --help`):
+
+| | What it produces |
+|---|---|
+| [`export_nerfstudio.py`](examples/scripts/export_nerfstudio.py) | `transforms.json` + images for any neighborhood — train **NeRFs / Gaussian Splats** on real streets, no COLMAP |
+| [`build_sign_dataset.py`](examples/scripts/build_sign_dataset.py) | Labeled sign image crops + CSV — instant **CV training data** |
+| [`make_depth_map.py`](examples/scripts/make_depth_map.py) | LiDAR **depth maps** (npz + preview) aligned to any photo |
+| [`export_ply.py`](examples/scripts/export_ply.py) | Colored **PLY of any block** for CloudCompare / Blender / CAD |
+
+## The data
+
+Everything ships from a public CDN (first `load_scene` caches ~120 MB of parquet
+in `~/.cache/cyvl`; images and LiDAR stream on demand). The same artifacts are in
+the hackathon S3 bucket — see its `README.md` / `schemas.md` for column-level docs,
+or set `CYVL_SCENE_DIR=/path/to/parquet-dir` to use a local copy.
+
+Good to know:
+
+- **Coordinates**: layers are WGS84; poses and LiDAR share UTM 19N (EPSG:32619).
+  `cyvl.geometry` converts both ways.
+- **Same-pass LiDAR by default**: the city was scanned by ~85 drive passes days
+  apart. `frame.lidar()` selects the frame's own pass (`same_pass=False` for the
+  merged cloud, `pass_window_s` to tune; ~2 s suits busy streets).
+- **No dynamic-object classification** in this dataset — moving vehicles are in
+  the point clouds; the same-pass time window is the mitigation.
+- **360° panoramas** are a geo-only layer (`scene.pano`) — no poses/projection.
+- A small set of frames (2.3%, `has_lidar_pass == False`) have poses but no
+  own-pass LiDAR; the SDK falls back to the densest nearby pass with a warning.
+
+## Architecture
+
+`Scene`/`Frame` are written against a `DataBackend` protocol. The hackathon ships
+`ParquetBackend` (static artifacts over CDN); the same seam can be served live
+from Cyvl's spatial database without touching user code. Projection math under
+`cyvl/_vendor/` is copied verbatim from Cyvl's production monorepo and stamped
+with its source commit (`scripts/vendor_sync.py`).
+
+## Development
+
+```bash
+uv venv && uv pip install -e '.[viz,dev]'
+uv run pytest          # offline tests against the bundled mini scene
+uv run ruff check src/ tests/
+```

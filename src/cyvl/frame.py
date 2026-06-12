@@ -238,7 +238,29 @@ class Frame:
             self.position[0], self.position[1], radius_m=radius_m
         )
         if same_pass:
-            cloud = cloud.crop_time(self.adjusted_timestamp_us / 1e6, pass_window_s)
+            capture_s = self.adjusted_timestamp_us / 1e6
+            own_pass = cloud.crop_time(capture_s, pass_window_s)
+            if len(own_pass) == 0 and len(cloud) and cloud.gps_time is not None:
+                # A few workers carry poses but no delivered lidar tiles
+                # (see frames table has_lidar_pass). Fall back to the pass
+                # with the densest coverage here: bin gps_time coarsely and
+                # take the dominant bin (nearest-in-time passes can be ones
+                # that merely clipped the edge of the radius).
+                bins = np.round(cloud.gps_time / 30.0)
+                values, counts = np.unique(bins, return_counts=True)
+                dominant_s = float(values[np.argmax(counts)] * 30.0)
+                gap_h = abs(dominant_s - capture_s) / 3600
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    "Frame %s has no lidar from its own pass; using the "
+                    "densest nearby pass (%.1f h away). Cross-pass alignment "
+                    "may be off by several cm and moving objects will differ.",
+                    self.id,
+                    gap_h,
+                )
+                own_pass = cloud.crop_time(dominant_s, pass_window_s + 30.0)
+            cloud = own_pass
         return cloud
 
     def points_in_view(
