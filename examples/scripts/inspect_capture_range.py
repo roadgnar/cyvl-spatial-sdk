@@ -10,9 +10,7 @@ whether a floating layer above the road is vehicle self-hits:
 """
 
 import argparse
-from pathlib import Path
 
-import numpy as np
 
 import cyvl
 from cyvl.cache import cache_dir
