@@ -37,8 +37,14 @@ def show_frame(
     if overlay is not None:
         visible = np.flatnonzero(overlay.in_view)
         if visible.size > max_points:
+            # Screen-space-uniform subsample: perspective spreads near points
+            # over ~1/depth^2 more pixels, so a uniform 3D sample looks
+            # artificially sparse in the foreground. Weight by 1/depth^2 to
+            # keep perceived density even across the frame.
+            weights = 1.0 / np.maximum(overlay.depth[visible], 2.0) ** 2
+            weights /= weights.sum()
             visible = np.random.default_rng(0).choice(
-                visible, max_points, replace=False
+                visible, max_points, replace=False, p=weights
             )
         pixels = overlay.pixels[visible]
         if overlay.intensity is not None:
