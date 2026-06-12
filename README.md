@@ -13,7 +13,7 @@ import cyvl
 
 scene = cyvl.load_scene("somerville")          # public CDN, no credentials
 
-frame = scene.frame(scene.frames_near(-71.1218, 42.3967).index[0])
+frame = scene.nearest_frame(-71.1218, 42.3967)   # closest photo to Davis Sq
 pts = frame.points_in_view()                   # LiDAR projected into the photo
 frame.show(overlay=pts)                        # intensity-ramped overlay
 

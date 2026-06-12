@@ -43,11 +43,10 @@ def main() -> None:
     args = parser.parse_args()
 
     scene = cyvl.load_scene("somerville")
-    frame_id = (
-        args.frame_id
-        or scene.frames_near(args.lon, args.lat, radius_m=60).index[0]
-    )
-    frame = scene.frame(frame_id)
+    if args.frame_id:
+        frame = scene.frame(args.frame_id)
+    else:
+        frame = scene.nearest_frame(args.lon, args.lat)
 
     projected = frame.points_in_view(radius_m=30)
     depth_map = rasterize_depth(frame, projected, cell=args.cell)

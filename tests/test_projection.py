@@ -19,6 +19,15 @@ class TestProjectionRegression:
         )
         np.testing.assert_allclose(projected.depth, expected["depth"], atol=1e-9)
 
+    def test_nearest_frame_never_needs_a_radius(self, scene, frame) -> None:
+        """nearest_frame finds the closest match from any distance."""
+        found = scene.nearest_frame(frame.lon + 0.01, frame.lat + 0.01)
+        assert found.image_url is not None
+        import pytest
+
+        with pytest.raises(ValueError, match="No frames match"):
+            scene.nearest_frame(frame.lon, frame.lat, facing="sideways")
+
     def test_signs_layer_projects_into_frame(self, scene, frame) -> None:
         """At least one nearby sign lands inside the image."""
         signs = scene.signs

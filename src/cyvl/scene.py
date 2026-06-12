@@ -147,6 +147,47 @@ class Scene:
         result["distance_m"] = distance[mask]
         return result.sort_values("distance_m")
 
+    def nearest_frame(
+        self,
+        lon: float,
+        lat: float,
+        *,
+        facing: str | None = None,
+        require_image: bool = True,
+    ) -> Frame:
+        """The single closest frame to a location, no radius guessing.
+
+        Args:
+            lon: Query longitude.
+            lat: Query latitude.
+            facing: Optionally restrict to "front" or "rear".
+            require_image: Only frames with a public photo (default True).
+
+        Returns:
+            The nearest matching Frame.
+
+        Raises:
+            ValueError: If no frame matches the filters at all.
+        """
+        frames = self.frames
+        mask = np.ones(len(frames), dtype=bool)
+        if facing is not None:
+            mask &= (frames["facing"] == facing).to_numpy()
+        if require_image:
+            mask &= frames["has_public_image"].to_numpy()
+        if not mask.any():
+            raise ValueError(
+                f"No frames match facing={facing!r}, require_image={require_image}"
+            )
+
+        query = lonlat_to_utm(lon, lat, 0.0, self.utm_epsg)[0]
+        candidates = frames[mask]
+        distance = np.hypot(
+            candidates["cam_x"].to_numpy() - query[0],
+            candidates["cam_y"].to_numpy() - query[1],
+        )
+        return self.frame(candidates.index[int(np.argmin(distance))])
+
     # ----------------------------------------------------------------- lidar
 
     def lidar_around(self, x_utm: float, y_utm: float, radius_m: float = 30.0):
