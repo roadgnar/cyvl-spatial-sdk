@@ -152,11 +152,15 @@ class LidarSource:
         """Read one tile's points within a UTM bbox (COPC fast path)."""
         copc_url = tile.get("copc_url")
         if isinstance(copc_url, str) and copc_url:
+            from cyvl.copc_flat import flat_spatial_query
+
             bounds = laspy.copc.Bounds(
                 mins=np.array([x_min, y_min]), maxs=np.array([x_max, y_max])
             )
             with laspy.copc.CopcReader.open(copc_url) as reader:
-                points = reader.query(bounds)
+                # flat_spatial_query handles Cyvl's flat hierarchy pages,
+                # which stock CopcReader.query silently returns 0 points for.
+                points = flat_spatial_query(reader, bounds)
                 las = laspy.LasData(header=reader.header, points=points)
             return _las_to_pointcloud(las, self.utm_epsg)
 
