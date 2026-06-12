@@ -1,0 +1,151 @@
+<!doctype html>
+<!-- cyvl frame viewer — adapted from Cyvl's internal masked_pcd_viewer.html
+     (spatial monorepo @ b9d7eb57): same intrinsics-matched projection so the
+     point cloud rendering aligns pixel-perfectly with the photo. -->
+<html>
+<head>
+<meta charset="utf-8" />
+<title>cyvl viewer</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0b0e11; color: #dde3ea;
+               font: 13px -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
+  #stage { position: absolute; inset: 0; }
+  #bgImage { position: absolute; object-fit: fill; pointer-events: none; }
+  #hud { position: absolute; top: 10px; left: 10px; background: #161b22cc;
+         padding: 10px 14px; border-radius: 8px; z-index: 10; max-width: 360px; }
+  #hud b { color: #7ee787; }
+  input[type=range] { width: 140px; vertical-align: middle; }
+  #err { color: #ff7b72; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<img id="bgImage" />
+<div id="hud">
+  <div><b id="title">loading…</b></div>
+  <div>image <input id="imgOpacity" type="range" min="0" max="100" value="55" />
+       points <input id="ptSize" type="range" min="1" max="20" value="5" /></div>
+  <div>drag to orbit · double-click to reset to camera view</div>
+  <div id="err"></div>
+</div>
+<script type="importmap">
+{ "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const stage = document.getElementById('stage');
+const bg = document.getElementById('bgImage');
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setClearColor(0x000000, 0);
+stage.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera();
+camera.matrixAutoUpdate = true;
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enabled = false;
+renderer.domElement.addEventListener('pointerdown', () => { controls.enabled = true; });
+renderer.domElement.addEventListener('dblclick', () => {
+  controls.enabled = false;
+  camera.position.set(0, 0, 0);
+  camera.quaternion.identity();
+  controls.target.set(0, 0, -10);
+});
+
+let intr = null;
+
+// OpenCV pinhole intrinsics -> OpenGL projection (row-major args).
+function intrinsicsProjectionMatrix(fx, fy, cx, cy, W, H, near, far) {
+  const m = new THREE.Matrix4();
+  m.set(
+    2 * fx / W, 0,          (W - 2 * cx) / W,             0,
+    0,          2 * fy / H, -(H - 2 * cy) / H,            0,
+    0,          0,          -(far + near) / (far - near), -2 * far * near / (far - near),
+    0,          0,          -1,                           0
+  );
+  return m;
+}
+
+function resize() {
+  if (!intr) return;
+  const w = stage.clientWidth, h = stage.clientHeight;
+  const imgAspect = intr.W / intr.H, paneAspect = w / h;
+  let cw = w, ch = h;
+  if (paneAspect > imgAspect) { ch = h; cw = Math.round(h * imgAspect); }
+  else { cw = w; ch = Math.round(w / imgAspect); }
+  renderer.setSize(cw, ch, false);
+  const el = renderer.domElement;
+  el.style.position = 'absolute';
+  el.style.left = `${Math.round((w - cw) / 2)}px`;
+  el.style.top = `${Math.round((h - ch) / 2)}px`;
+  el.style.width = `${cw}px`; el.style.height = `${ch}px`;
+  bg.style.left = el.style.left; bg.style.top = el.style.top;
+  bg.style.width = el.style.width; bg.style.height = el.style.height;
+  camera.projectionMatrix.copy(
+    intrinsicsProjectionMatrix(intr.fx, intr.fy, intr.cx, intr.cy, intr.W, intr.H, 0.5, 400));
+  camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
+}
+window.addEventListener('resize', resize);
+
+function animate() {
+  requestAnimationFrame(animate);
+  if (controls.enabled) controls.update();
+  else {
+    camera.position.set(0, 0, 0);
+    camera.quaternion.identity();
+    camera.updateMatrixWorld(true);
+  }
+  if (intr) camera.projectionMatrix.copy(
+    intrinsicsProjectionMatrix(intr.fx, intr.fy, intr.cx, intr.cy, intr.W, intr.H, 0.5, 400));
+  renderer.render(scene, camera);
+}
+animate();
+
+async function main() {
+  try {
+    const data = await (await fetch('data.json')).json();
+    document.getElementById('title').textContent = data.frame_id;
+    intr = data.intrinsics;
+    bg.src = 'image.jpg';
+    bg.style.opacity = 0.55;
+
+    // points.bin: N float32 xyz (camera-relative world axes) + N uint8 rgb.
+    const buf = await (await fetch('points.bin')).arrayBuffer();
+    const n = data.point_count;
+    const xyz = new Float32Array(buf, 0, n * 3);
+    const rgb = new Uint8Array(buf, n * 12, n * 3);
+
+    // Points arrive already in the CAMERA frame (OpenCV: x right, y down,
+    // z forward); flip to OpenGL (y up, -z forward).
+    const pos = new Float32Array(n * 3);
+    const col = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      pos[3*i]   = xyz[3*i];
+      pos[3*i+1] = -xyz[3*i+1];
+      pos[3*i+2] = -xyz[3*i+2];
+      col[3*i]   = rgb[3*i] / 255;
+      col[3*i+1] = rgb[3*i+1] / 255;
+      col[3*i+2] = rgb[3*i+2] / 255;
+    }
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geom.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    const mat = new THREE.PointsMaterial({ size: 0.05, vertexColors: true });
+    scene.add(new THREE.Points(geom, mat));
+    controls.target.set(0, 0, -10);
+
+    document.getElementById('imgOpacity').oninput = e => { bg.style.opacity = e.target.value / 100; };
+    document.getElementById('ptSize').oninput = e => { mat.size = e.target.value / 100; };
+    resize();
+  } catch (e) {
+    document.getElementById('err').textContent = String(e);
+  }
+}
+main();
+</script>
+</body>
+</html>

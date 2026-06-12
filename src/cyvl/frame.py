@@ -230,6 +230,23 @@ class Frame:
         cloud = self.lidar(radius_m=radius_m)
         return self.project(cloud.xyz, colors=cloud.rgb)
 
+    def open_viewer(self, radius_m: float = 30.0):
+        """Open this frame in the split image/3D browser viewer.
+
+        Renders the surrounding lidar through this frame's exact calibrated
+        camera, overlaid on the photo — drag to orbit away from the camera
+        viewpoint, double-click to snap back.
+
+        Args:
+            radius_m: Lidar fetch radius around the camera, meters.
+
+        Returns:
+            Path to the exported viewer bundle.
+        """
+        from cyvl.viewer import open_viewer
+
+        return open_viewer(self, radius_m=radius_m)
+
     def show(self, overlay: Projected | None = None, max_points: int = 200_000):
         """Display the frame (and optionally projected points) with matplotlib.
 
