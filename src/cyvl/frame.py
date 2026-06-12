@@ -211,6 +211,7 @@ class Frame:
         *,
         same_pass: bool = True,
         pass_window_s: float = 5.0,
+        fallback: bool = True,
     ) -> "PointCloud":
         """Fetch the lidar points surrounding this frame's camera position.
 
@@ -225,6 +226,9 @@ class Frame:
             pass_window_s: Half-width of the same-pass window, seconds. The
                 default 5 s balances coverage density against moving-object
                 ghosts; tighten to ~2 s on busy streets.
+            fallback: When the frame's own pass has no delivered lidar
+                (has_lidar_pass == False), substitute the densest nearby
+                pass with a warning. Set False to raise instead.
 
         Returns:
             PointCloud in this frame's UTM zone.
@@ -240,6 +244,12 @@ class Frame:
         if same_pass:
             capture_s = self.adjusted_timestamp_us / 1e6
             own_pass = cloud.crop_time(capture_s, pass_window_s)
+            if len(own_pass) == 0 and not fallback:
+                raise ValueError(
+                    f"Frame {self.id} has no lidar from its own pass "
+                    "(see frames table has_lidar_pass). Pick another frame, "
+                    "or pass fallback=True to use the densest nearby pass."
+                )
             if len(own_pass) == 0 and len(cloud) and cloud.gps_time is not None:
                 # A few workers carry poses but no delivered lidar tiles
                 # (see frames table has_lidar_pass). Fall back to the pass

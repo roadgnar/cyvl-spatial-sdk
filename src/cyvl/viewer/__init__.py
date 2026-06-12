@@ -53,17 +53,14 @@ def export_viewer_bundle(
         raise ValueError(f"Frame {frame.id} has no public image to view")
     shutil.copyfile(cached_download(frame.image_url, progress=False), out_dir / "image.jpg")
 
-    cloud = frame.lidar(radius_m=radius_m)
+    # Strict same-pass: a viewer that silently shows another drive's lidar
+    # would misrepresent alignment, so refuse rather than fall back.
+    cloud = frame.lidar(radius_m=radius_m, fallback=False)
     if len(cloud) > max_points:
         keep = np.sort(
             np.random.default_rng(0).choice(len(cloud), max_points, replace=False)
         )
-        cloud = type(cloud)(
-            xyz=cloud.xyz[keep],
-            rgb=cloud.rgb[keep] if cloud.rgb is not None else None,
-            intensity=cloud.intensity[keep] if cloud.intensity is not None else None,
-            utm_epsg=cloud.utm_epsg,
-        )
+        cloud = cloud._subset(keep)
     # Transform to the camera frame in float64, THEN narrow to float32 —
     # UTM magnitudes (~5e5) would destroy precision if cast first.
     utm_to_camera = np.linalg.inv(frame.pose)
@@ -75,8 +72,17 @@ def export_viewer_bundle(
         if cloud.rgb is not None
         else np.full((len(cloud), 3), 200, dtype=np.uint8)
     )
+    # Percentile-normalized intensity (uint8) drives the viridis ramp in JS.
+    if cloud.intensity is not None and len(cloud):
+        lo, hi = np.percentile(cloud.intensity, [2, 98])
+        intensity_u8 = (
+            255 * np.clip((cloud.intensity - lo) / max(hi - lo, 1e-9), 0, 1)
+        ).astype(np.uint8)
+    else:
+        intensity_u8 = np.full(len(cloud), 128, dtype=np.uint8)
     with open(out_dir / "points.bin", "wb") as f:
         f.write(xyz32.tobytes())
+        f.write(intensity_u8.tobytes())
         f.write(rgb.astype(np.uint8).tobytes())
 
     camera = frame.camera
