@@ -212,6 +212,7 @@ class Frame:
         same_pass: bool = True,
         pass_window_s: float = 5.0,
         fallback: bool = True,
+        min_range_m: float | None = 3.0,
     ) -> "PointCloud":
         """Fetch the lidar points surrounding this frame's camera position.
 
@@ -229,6 +230,10 @@ class Frame:
             fallback: When the frame's own pass has no delivered lidar
                 (has_lidar_pass == False), substitute the densest nearby
                 pass with a warning. Set False to raise instead.
+            min_range_m: Drop points captured closer than this to the
+                scanner (vehicle self-hits form a floating layer above the
+                road). Uses the true range dimension when present, else the
+                vehicle-path estimate. None disables.
 
         Returns:
             PointCloud in this frame's UTM zone.
@@ -238,8 +243,10 @@ class Frame:
         """
         if self._scene is None:
             raise RuntimeError("Frame has no scene attached; use scene.frame(id)")
+        # min-range filtering happens below, after pass selection (smaller
+        # array) — disable it in the scene-level fetch.
         cloud = self._scene.lidar_around(
-            self.position[0], self.position[1], radius_m=radius_m
+            self.position[0], self.position[1], radius_m=radius_m, min_range_m=None
         )
         if same_pass:
             capture_s = self.adjusted_timestamp_us / 1e6
@@ -271,6 +278,9 @@ class Frame:
                 )
                 own_pass = cloud.crop_time(dominant_s, pass_window_s + 30.0)
             cloud = own_pass
+        if min_range_m is not None and len(cloud):
+            path_ts_s, path_xyz = self._scene.vehicle_path()
+            cloud = cloud.crop_min_range(min_range_m, path_ts_s, path_xyz)
         return cloud
 
     def points_in_view(

@@ -74,7 +74,7 @@ Good to know:
 
 - **Coordinates**: layers are WGS84; poses and LiDAR share UTM 19N (EPSG:32619).
   `cyvl.geometry` converts both ways.
-- **Same-pass LiDAR by default**: the city was scanned by ~85 drive passes days
+- **Same-pass LiDAR + 3 m min-range by default**: the city was scanned by ~85 passes days
   apart. `frame.lidar()` selects the frame's own pass (`same_pass=False` for the
   merged cloud, `pass_window_s` to tune; ~2 s suits busy streets).
 - **No dynamic-object classification** in this dataset — moving vehicles are in

@@ -86,8 +86,17 @@ def export_viewer_bundle(
         intensity_u8 = np.full(len(cloud), 128, dtype=np.uint8)
     # Capture-time scanner range in 0.1 m units (clamped at 25.5 m): lets the
     # viewer filter short-range returns (e.g. vehicle self-hits) on a slider.
-    if cloud.scan_range is not None and len(cloud):
-        range_u8 = np.clip(cloud.scan_range * 10.0, 0, 255).astype(np.uint8)
+    # True range dim when present, vehicle-path estimate otherwise (COPC
+    # tiles lack the dim).
+    ranges = None
+    if len(cloud):
+        if frame._scene is not None:
+            path_ts_s, path_xyz = frame._scene.vehicle_path()
+            ranges = cloud.capture_range(path_ts_s, path_xyz)
+        else:
+            ranges = cloud.capture_range()
+    if ranges is not None:
+        range_u8 = np.clip(ranges * 10.0, 0, 255).astype(np.uint8)
     else:
         range_u8 = np.full(len(cloud), 255, dtype=np.uint8)
     with open(out_dir / "points.bin", "wb") as f:
