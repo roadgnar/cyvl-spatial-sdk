@@ -1,0 +1,22 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+      - name: Install
+        run: uv venv --python ${{ matrix.python-version }} && uv pip install -e '.[viz,dev]'
+      - name: Lint
+        run: uv run ruff check src/ tests/
+      - name: Offline tests (mini_scene fixture)
+        run: uv run pytest -q

@@ -197,6 +197,15 @@ def load_scene(
     Returns:
         A ready Scene.
     """
+    import os
+    from pathlib import Path
+
     if backend is None:
-        backend = ParquetBackend.for_scene(name)
+        # CYVL_SCENE_DIR points at a local directory holding parquet/ —
+        # used for offline work and pre-publication development.
+        override = os.environ.get("CYVL_SCENE_DIR")
+        if override:
+            backend = ParquetBackend(root=Path(override))
+        else:
+            backend = ParquetBackend.for_scene(name)
     return Scene(backend)
