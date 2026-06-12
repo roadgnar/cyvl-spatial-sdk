@@ -41,3 +41,10 @@ print(m)  # Measurement(3.42 m / 11.22 ft)
 - **`cyvl.measure(...)`** — real distances between any two pixels of a photo.
 
 Docs, examples, and schema reference: see [`examples/`](examples/).
+
+## Get the data
+
+The dataset is hosted in a public, read-only S3 bucket (`cyvl-hackathon`). See
+the [**S3 access guide**](S3_GUIDE.md) for every way to list, download, or query
+it directly — with AWS credentials, anonymously via `--no-sign-request`, or over
+plain HTTPS with no AWS tooling at all.
