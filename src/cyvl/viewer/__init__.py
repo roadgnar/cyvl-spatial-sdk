@@ -100,8 +100,25 @@ def export_viewer_bundle(
     return out_dir
 
 
-def serve_and_open(bundle_dir: Path) -> None:
-    """Serve a viewer bundle on localhost and open the browser."""
+def _interactive_session() -> bool:
+    """True when there's a REPL/notebook keeping the process alive."""
+    import sys
+
+    if hasattr(sys, "ps1"):
+        return True
+    ipython = sys.modules.get("IPython")
+    return ipython is not None and ipython.get_ipython() is not None
+
+
+def serve_and_open(bundle_dir: Path, block: bool | None = None) -> None:
+    """Serve a viewer bundle on localhost and open the browser.
+
+    Args:
+        bundle_dir: Directory containing index.html and assets.
+        block: Keep serving in the foreground until Ctrl+C. Default (None)
+            blocks in scripts and returns immediately in REPLs/notebooks,
+            where the live process keeps the daemon server alive.
+    """
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
@@ -110,18 +127,34 @@ def serve_and_open(bundle_dir: Path) -> None:
         *args, directory=str(bundle_dir)
     )
     server = http.server.ThreadingHTTPServer(("127.0.0.1", port), handler)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
     url = f"http://127.0.0.1:{port}/index.html"
+
+    if block is None:
+        block = not _interactive_session()
+
+    if block:
+        webbrowser.open(url)
+        print(f"Viewer at {url} — Ctrl+C to stop")  # noqa: T201
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            server.shutdown()
+        return
+
+    threading.Thread(target=server.serve_forever, daemon=True).start()
     logger.info("Viewer at %s (server runs until process exit)", url)
     webbrowser.open(url)
 
 
-def open_viewer(frame: "Frame", radius_m: float = 30.0) -> Path:
+def open_viewer(
+    frame: "Frame", radius_m: float = 30.0, block: bool | None = None
+) -> Path:
     """Build a viewer bundle for a frame and open it in the browser.
 
     Args:
         frame: Frame to visualize.
         radius_m: Lidar fetch radius.
+        block: Serve in the foreground (see serve_and_open).
 
     Returns:
         The bundle directory (kept for re-serving or sharing).
@@ -130,5 +163,5 @@ def open_viewer(frame: "Frame", radius_m: float = 30.0) -> Path:
 
     bundle = cache_dir() / "viewer" / frame.id
     export_viewer_bundle(frame, bundle, radius_m=radius_m)
-    serve_and_open(bundle)
+    serve_and_open(bundle, block=block)
     return bundle

@@ -282,7 +282,7 @@ class Frame:
         cloud = self.lidar(radius_m=radius_m, same_pass=same_pass)
         return self.project(cloud.xyz, colors=cloud.rgb, intensity=cloud.intensity)
 
-    def open_viewer(self, radius_m: float = 30.0):
+    def open_viewer(self, radius_m: float = 30.0, block: bool | None = None):
         """Open this frame in the split image/3D browser viewer.
 
         Renders the surrounding lidar through this frame's exact calibrated
@@ -297,7 +297,7 @@ class Frame:
         """
         from cyvl.viewer import open_viewer
 
-        return open_viewer(self, radius_m=radius_m)
+        return open_viewer(self, radius_m=radius_m, block=block)
 
     def show(self, overlay: Projected | None = None, max_points: int = 200_000):
         """Display the frame (and optionally projected points) with matplotlib.
