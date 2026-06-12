@@ -154,6 +154,7 @@ class Scene:
         *,
         facing: str | None = None,
         require_image: bool = True,
+        require_lidar: bool = True,
     ) -> Frame:
         """The single closest frame to a location, no radius guessing.
 
@@ -162,6 +163,9 @@ class Scene:
             lat: Query latitude.
             facing: Optionally restrict to "front" or "rear".
             require_image: Only frames with a public photo (default True).
+            require_lidar: Only frames whose own drive pass has lidar tiles
+                (default True — ~2% of frames lack them and can't drape;
+                no-op when the frames table predates the coverage column).
 
         Returns:
             The nearest matching Frame.
@@ -175,6 +179,8 @@ class Scene:
             mask &= (frames["facing"] == facing).to_numpy()
         if require_image:
             mask &= frames["has_public_image"].to_numpy()
+        if require_lidar and "has_lidar_pass" in frames.columns:
+            mask &= frames["has_lidar_pass"].to_numpy()
         if not mask.any():
             raise ValueError(
                 f"No frames match facing={facing!r}, require_image={require_image}"
