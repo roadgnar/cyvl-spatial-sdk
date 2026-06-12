@@ -26,6 +26,10 @@ m = cyvl.measure(frame, (1700, 1200), (2100, 1180))
 print(m)  # Measurement(3.42 m / 11.22 ft)
 ```
 
+| Database signs projected onto their poles | LiDAR draped into the photo |
+|---|---|
+| ![sign projection](docs/images/sign_projection.jpg) | ![points in view](docs/images/points_in_view.jpg) |
+
 ## What you get
 
 - **`Scene`** — 311k posed camera frames, 84k pavement distresses, 3.7k signs,
