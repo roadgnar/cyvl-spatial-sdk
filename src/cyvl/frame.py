@@ -30,6 +30,7 @@ class Projected:
     in_view: np.ndarray  # (N,) bool: inside frustum AND image bounds
     points_utm: np.ndarray  # (N, 3) the projected world points
     colors: np.ndarray | None = None  # (N, 3) uint8 when source had RGB
+    intensity: np.ndarray | None = None  # (N,) lidar return intensity
 
     def __len__(self) -> int:
         return len(self.pixels)
@@ -100,6 +101,7 @@ class Frame:
         lonlat: np.ndarray | None = None,
         alt: np.ndarray | float = 0.0,
         colors: np.ndarray | None = None,
+        intensity: np.ndarray | None = None,
     ) -> Projected:
         """Project world points into this frame's pixels.
 
@@ -112,6 +114,8 @@ class Frame:
             lonlat: (N, 2) lon/lat pairs (alternative to xyz).
             alt: Altitude(s) used with lonlat, meters.
             colors: Optional (N, 3) per-point colors carried through.
+            intensity: Optional (N,) lidar intensities carried through
+                (drives the default overlay color ramp in Frame.show).
 
         Returns:
             Projected result aligned with the input points.
@@ -147,6 +151,7 @@ class Frame:
             in_view=in_view,
             points_utm=xyz,
             colors=colors,
+            intensity=intensity,
         )
 
     def unproject(
@@ -205,7 +210,7 @@ class Frame:
         radius_m: float = 30.0,
         *,
         same_pass: bool = True,
-        pass_window_s: float = 20.0,
+        pass_window_s: float = 5.0,
     ) -> "PointCloud":
         """Fetch the lidar points surrounding this frame's camera position.
 
@@ -217,7 +222,9 @@ class Frame:
         Args:
             radius_m: Horizontal radius around the camera, meters.
             same_pass: Keep only points captured alongside this photo.
-            pass_window_s: Half-width of the same-pass time window, seconds.
+            pass_window_s: Half-width of the same-pass window, seconds. The
+                default 5 s balances coverage density against moving-object
+                ghosts; tighten to ~2 s on busy streets.
 
         Returns:
             PointCloud in this frame's UTM zone.
@@ -251,7 +258,7 @@ class Frame:
             Projected lidar points (colors carried through when present).
         """
         cloud = self.lidar(radius_m=radius_m, same_pass=same_pass)
-        return self.project(cloud.xyz, colors=cloud.rgb)
+        return self.project(cloud.xyz, colors=cloud.rgb, intensity=cloud.intensity)
 
     def open_viewer(self, radius_m: float = 30.0):
         """Open this frame in the split image/3D browser viewer.

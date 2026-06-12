@@ -41,7 +41,22 @@ def show_frame(
                 visible, max_points, replace=False
             )
         pixels = overlay.pixels[visible]
-        if overlay.colors is not None:
+        if overlay.intensity is not None:
+            # Intensity ramp (percentile-normalized): structure pops far
+            # better than raw RGB — markings, signs, and retroreflectors
+            # read clearly against pavement.
+            values = overlay.intensity[visible].astype(float)
+            lo, hi = np.percentile(values, [2, 98])
+            scatter = ax.scatter(
+                pixels[:, 0],
+                pixels[:, 1],
+                c=np.clip((values - lo) / max(hi - lo, 1e-9), 0, 1),
+                cmap="turbo",
+                s=1.5,
+                alpha=0.85,
+            )
+            plt.colorbar(scatter, ax=ax, label="intensity (normalized)", shrink=0.7)
+        elif overlay.colors is not None:
             colors = overlay.colors[visible] / 255.0
             ax.scatter(pixels[:, 0], pixels[:, 1], c=colors, s=1.5, alpha=0.8)
         else:
