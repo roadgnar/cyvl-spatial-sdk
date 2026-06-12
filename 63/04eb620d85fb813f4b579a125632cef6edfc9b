@@ -1,0 +1,21 @@
+README.md
+  s_d06848d621ed62::t_33f4c588a7b377 44-50
+S3_GUIDE.md
+  s_d06848d621ed62::t_b48728670f78fb 1-174
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "6304eb620d85fb813f4b579a125632cef6edfc9b",
+  "prompts": {},
+  "sessions": {
+    "s_d06848d621ed62": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7bd7ee96-3ecc-470d-821e-a174abd238c9",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Alex Ball <alex@cyvl.ai>"
+    }
+  }
+}
