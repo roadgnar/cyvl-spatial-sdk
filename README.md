@@ -79,6 +79,9 @@ Good to know:
   merged cloud, `pass_window_s` to tune; ~2 s suits busy streets).
 - **No dynamic-object classification** in this dataset — moving vehicles are in
   the point clouds; the same-pass time window is the mitigation.
+- **Sign coverage is partial**: the signs layer covers the city's south/southeast
+  only — that's the extent of the delivered sign survey (verified against Cyvl's
+  production API, not a data loss). Pavement/distress/imagery layers are city-wide.
 - **360° panoramas** are a geo-only layer (`scene.pano`) — no poses/projection.
 - A small set of frames (2.3%, `has_lidar_pass == False`) have poses but no
   own-pass LiDAR; the SDK falls back to the densest nearby pass with a warning.
