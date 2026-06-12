@@ -36,8 +36,8 @@ def rasterize_depth(frame, projected, cell: int = 4) -> np.ndarray:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--frame-id", default=None)
-    parser.add_argument("--lon", type=float, default=-71.1218)
-    parser.add_argument("--lat", type=float, default=42.3967)
+    parser.add_argument("--lon", type=float, default=-71.093162)
+    parser.add_argument("--lat", type=float, default=42.387389)
     parser.add_argument("--cell", type=int, default=4, help="px per depth cell")
     parser.add_argument("--out", type=Path, default=Path("exports/depth"))
     args = parser.parse_args()
