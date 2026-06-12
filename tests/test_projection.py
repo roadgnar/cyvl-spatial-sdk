@@ -54,8 +54,9 @@ class TestRoundTrips:
 
     def test_lidar_depth_unproject_close_to_surface(self, frame) -> None:
         """Pixel -> 3D via lidar depth lands within 25 cm of a lidar point."""
+        # Fixture is a 400k subsample; the same-pass 20m crop is ~48k points.
         cloud = frame.lidar(radius_m=20)
-        assert len(cloud) > 100_000
+        assert len(cloud) > 10_000
         projected = frame.project(cloud.xyz)
         candidate = int(np.flatnonzero(projected.in_view)[1000])
         px, py = projected.pixels[candidate]

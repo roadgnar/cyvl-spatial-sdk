@@ -57,6 +57,9 @@ class Frame:
         )
         self.utm_epsg: int = int(row["utm_epsg"])
         self.timestamp_us: int = int(row["timestamp_us"])
+        # SLAM-domain capture time: selects this frame's own drive pass
+        # out of the multi-pass merged tiles (gps_time is in this domain).
+        self.adjusted_timestamp_us: float = float(row["adjusted_timestamp_us"])
         self.camera = camera
         self._scene = scene
 
@@ -197,11 +200,24 @@ class Frame:
         point_camera = ray_camera * depth
         return (self.pose @ np.append(point_camera, 1.0))[:3]
 
-    def lidar(self, radius_m: float = 30.0) -> "PointCloud":
+    def lidar(
+        self,
+        radius_m: float = 30.0,
+        *,
+        same_pass: bool = True,
+        pass_window_s: float = 20.0,
+    ) -> "PointCloud":
         """Fetch the lidar points surrounding this frame's camera position.
+
+        By default only points captured during this frame's own drive pass
+        are returned: the city was scanned by many passes days apart, and
+        cross-pass SLAM drift plus moving objects smear projections. Pass
+        same_pass=False for the full merged cloud.
 
         Args:
             radius_m: Horizontal radius around the camera, meters.
+            same_pass: Keep only points captured alongside this photo.
+            pass_window_s: Half-width of the same-pass time window, seconds.
 
         Returns:
             PointCloud in this frame's UTM zone.
@@ -211,11 +227,16 @@ class Frame:
         """
         if self._scene is None:
             raise RuntimeError("Frame has no scene attached; use scene.frame(id)")
-        return self._scene.lidar_around(
+        cloud = self._scene.lidar_around(
             self.position[0], self.position[1], radius_m=radius_m
         )
+        if same_pass:
+            cloud = cloud.crop_time(self.adjusted_timestamp_us / 1e6, pass_window_s)
+        return cloud
 
-    def points_in_view(self, radius_m: float = 30.0) -> Projected:
+    def points_in_view(
+        self, radius_m: float = 30.0, *, same_pass: bool = True
+    ) -> Projected:
         """Project this frame's surrounding lidar into its pixels.
 
         The one-liner: colored 3D points with exact pixel coordinates,
@@ -223,11 +244,13 @@ class Frame:
 
         Args:
             radius_m: Horizontal lidar fetch radius, meters.
+            same_pass: Use only this frame's own drive pass (default True —
+                see Frame.lidar for why).
 
         Returns:
             Projected lidar points (colors carried through when present).
         """
-        cloud = self.lidar(radius_m=radius_m)
+        cloud = self.lidar(radius_m=radius_m, same_pass=same_pass)
         return self.project(cloud.xyz, colors=cloud.rgb)
 
     def open_viewer(self, radius_m: float = 30.0):

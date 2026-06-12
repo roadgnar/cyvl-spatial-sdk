@@ -27,19 +27,42 @@ class PointCloud:
     rgb: np.ndarray | None  # (N, 3) uint8
     intensity: np.ndarray | None  # (N,) float32
     utm_epsg: int
+    gps_time: np.ndarray | None = None  # (N,) float64 seconds since epoch
 
     def __len__(self) -> int:
         return len(self.xyz)
 
-    def crop_radius(self, x: float, y: float, radius_m: float) -> "PointCloud":
-        """Subset points within a horizontal radius of (x, y)."""
-        mask = np.hypot(self.xyz[:, 0] - x, self.xyz[:, 1] - y) <= radius_m
+    def _subset(self, mask: np.ndarray) -> "PointCloud":
         return PointCloud(
             xyz=self.xyz[mask],
             rgb=self.rgb[mask] if self.rgb is not None else None,
             intensity=self.intensity[mask] if self.intensity is not None else None,
             utm_epsg=self.utm_epsg,
+            gps_time=self.gps_time[mask] if self.gps_time is not None else None,
         )
+
+    def crop_radius(self, x: float, y: float, radius_m: float) -> "PointCloud":
+        """Subset points within a horizontal radius of (x, y)."""
+        mask = np.hypot(self.xyz[:, 0] - x, self.xyz[:, 1] - y) <= radius_m
+        return self._subset(mask)
+
+    def crop_time(self, center_s: float, window_s: float) -> "PointCloud":
+        """Subset points captured within a time window (one drive pass).
+
+        The city is scanned by many passes days apart; centimeter-level
+        drapes come from the points captured alongside the photo, not the
+        merged multi-pass cloud.
+
+        Args:
+            center_s: Center of the window, GPS seconds since epoch.
+            window_s: Half-width of the window, seconds.
+
+        Returns:
+            The single-pass subset (unchanged clone if gps_time is absent).
+        """
+        if self.gps_time is None:
+            return self
+        return self._subset(np.abs(self.gps_time - center_s) <= window_s)
 
     @staticmethod
     def concatenate(clouds: list["PointCloud"]) -> "PointCloud":
@@ -57,11 +80,17 @@ class PointCloud:
             if all(c.intensity is not None for c in clouds)
             else None
         )
+        gps_time = (
+            np.concatenate([c.gps_time for c in clouds])
+            if all(c.gps_time is not None for c in clouds)
+            else None
+        )
         return PointCloud(
             xyz=np.vstack([c.xyz for c in clouds]),
             rgb=rgb,
             intensity=intensity,
             utm_epsg=clouds[0].utm_epsg,
+            gps_time=gps_time,
         )
 
 
@@ -82,7 +111,14 @@ def _las_to_pointcloud(las: laspy.LasData, utm_epsg: int) -> PointCloud:
         if "intensity" in las.point_format.dimension_names
         else None
     )
-    return PointCloud(xyz=xyz, rgb=rgb, intensity=intensity, utm_epsg=utm_epsg)
+    gps_time = (
+        np.asarray(las.gps_time, dtype=np.float64)
+        if "gps_time" in las.point_format.dimension_names
+        else None
+    )
+    return PointCloud(
+        xyz=xyz, rgb=rgb, intensity=intensity, utm_epsg=utm_epsg, gps_time=gps_time
+    )
 
 
 class LidarSource:
@@ -178,9 +214,4 @@ class LidarSource:
             & (cloud.xyz[:, 1] >= y_min)
             & (cloud.xyz[:, 1] <= y_max)
         )
-        return PointCloud(
-            xyz=cloud.xyz[mask],
-            rgb=cloud.rgb[mask] if cloud.rgb is not None else None,
-            intensity=cloud.intensity[mask] if cloud.intensity is not None else None,
-            utm_epsg=self.utm_epsg,
-        )
+        return cloud._subset(mask)
