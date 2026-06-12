@@ -24,6 +24,7 @@ def export_viewer_bundle(
     out_dir: Path,
     radius_m: float = 30.0,
     max_points: int = 4_000_000,
+    cloud=None,
 ) -> Path:
     """Write a self-contained viewer bundle for a frame.
 
@@ -55,7 +56,10 @@ def export_viewer_bundle(
 
     # Strict same-pass: a viewer that silently shows another drive's lidar
     # would misrepresent alignment, so refuse rather than fall back.
-    cloud = frame.lidar(radius_m=radius_m, fallback=False)
+    # A pre-fetched cloud= overrides (e.g. LAZ-sourced points that retain
+    # the capture-range dimension, which the COPC twins lack).
+    if cloud is None:
+        cloud = frame.lidar(radius_m=radius_m, fallback=False)
     if len(cloud) > max_points:
         keep = np.sort(
             np.random.default_rng(0).choice(len(cloud), max_points, replace=False)
@@ -80,9 +84,16 @@ def export_viewer_bundle(
         ).astype(np.uint8)
     else:
         intensity_u8 = np.full(len(cloud), 128, dtype=np.uint8)
+    # Capture-time scanner range in 0.1 m units (clamped at 25.5 m): lets the
+    # viewer filter short-range returns (e.g. vehicle self-hits) on a slider.
+    if cloud.scan_range is not None and len(cloud):
+        range_u8 = np.clip(cloud.scan_range * 10.0, 0, 255).astype(np.uint8)
+    else:
+        range_u8 = np.full(len(cloud), 255, dtype=np.uint8)
     with open(out_dir / "points.bin", "wb") as f:
         f.write(xyz32.tobytes())
         f.write(intensity_u8.tobytes())
+        f.write(range_u8.tobytes())
         f.write(rgb.astype(np.uint8).tobytes())
 
     camera = frame.camera

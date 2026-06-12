@@ -28,6 +28,7 @@
   <div class="row"><span>image</span><input id="blend" type="range" min="0" max="100" value="75" /><span>points</span></div>
   <div class="row"><span>size</span><input id="ptSize" type="range" min="1" max="20" value="5" />
     <label class="toggle"><input id="rgbToggle" type="checkbox" /> RGB colors</label></div>
+  <div class="row"><span>hide capture-range &lt;</span><input id="minRange" type="range" min="0" max="80" value="0" step="1" /><span id="minRangeVal">0.0 m</span></div>
   <div>drag to orbit · double-click to reset to camera view</div>
   <div id="err"></div>
 </div>
@@ -128,12 +129,13 @@ async function main() {
     intr = data.intrinsics;
     bg.src = 'image.jpg';
 
-    // points.bin: N f32 xyz (camera frame) | N u8 intensity | N u8 rgb.
+    // points.bin: N f32 xyz (camera frame) | N u8 intensity | N u8 range(0.1m) | N u8 rgb.
     const buf = await (await fetch('points.bin')).arrayBuffer();
     const n = data.point_count;
     const xyz = new Float32Array(buf, 0, n * 3);
     const inten = new Uint8Array(buf, n * 12, n);
-    const rgb = new Uint8Array(buf, n * 13, n * 3);
+    const rangeDm = new Uint8Array(buf, n * 13, n);
+    const rgb = new Uint8Array(buf, n * 14, n * 3);
 
     // OpenCV camera axes (x right, y down, z forward) -> OpenGL (y up, -z).
     const pos = new Float32Array(n * 3);
@@ -156,6 +158,32 @@ async function main() {
     scene.add(new THREE.Points(geom, mat));
     controls.target.set(0, 0, -10);
 
+    // Capture-range filter: rebuild compacted buffers when the threshold
+    // moves. Proves/strips short-range returns (vehicle self-hits).
+    let useRgb = false;
+    function applyRangeFilter() {
+      const minDm = Number(document.getElementById('minRange').value);
+      document.getElementById('minRangeVal').textContent = (minDm / 10).toFixed(1) + ' m';
+      const src = useRgb ? colRgb : colViridis;
+      let kept = 0;
+      const fpos = new Float32Array(n * 3), fcol = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) {
+        if (rangeDm[i] < minDm) continue;
+        fpos[3*kept] = pos[3*i]; fpos[3*kept+1] = pos[3*i+1]; fpos[3*kept+2] = pos[3*i+2];
+        fcol[3*kept] = src[3*i]; fcol[3*kept+1] = src[3*i+1]; fcol[3*kept+2] = src[3*i+2];
+        kept++;
+      }
+      geom.setAttribute('position', new THREE.BufferAttribute(fpos.subarray(0, kept * 3), 3));
+      geom.setAttribute('color', new THREE.BufferAttribute(fcol.subarray(0, kept * 3), 3));
+      geom.attributes.position.needsUpdate = true;
+      geom.attributes.color.needsUpdate = true;
+      geom.setDrawRange(0, kept);
+      geom.computeBoundingSphere();
+      document.getElementById('title').textContent =
+        `${data.frame_id} — ${kept.toLocaleString()} / ${n.toLocaleString()} pts`;
+    }
+    document.getElementById('minRange').addEventListener('change', applyRangeFilter);
+
     // One blend control: left = photo, right = points. Crossfade so the
     // direction always matches the labels.
     const blend = document.getElementById('blend');
@@ -169,8 +197,8 @@ async function main() {
 
     document.getElementById('ptSize').oninput = e => { mat.size = e.target.value / 100; };
     document.getElementById('rgbToggle').onchange = e => {
-      geom.setAttribute('color', new THREE.BufferAttribute(e.target.checked ? colRgb : colViridis, 3));
-      geom.attributes.color.needsUpdate = true;
+      useRgb = e.target.checked;
+      applyRangeFilter();
     };
     resize();
   } catch (e) {

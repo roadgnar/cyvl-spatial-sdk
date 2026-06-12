@@ -28,6 +28,7 @@ class PointCloud:
     intensity: np.ndarray | None  # (N,) float32
     utm_epsg: int
     gps_time: np.ndarray | None = None  # (N,) float64 seconds since epoch
+    scan_range: np.ndarray | None = None  # (N,) float32 meters from scanner at capture
 
     def __len__(self) -> int:
         return len(self.xyz)
@@ -39,6 +40,9 @@ class PointCloud:
             intensity=self.intensity[mask] if self.intensity is not None else None,
             utm_epsg=self.utm_epsg,
             gps_time=self.gps_time[mask] if self.gps_time is not None else None,
+            scan_range=(
+                self.scan_range[mask] if self.scan_range is not None else None
+            ),
         )
 
     def crop_radius(self, x: float, y: float, radius_m: float) -> "PointCloud":
@@ -85,12 +89,18 @@ class PointCloud:
             if all(c.gps_time is not None for c in clouds)
             else None
         )
+        scan_range = (
+            np.concatenate([c.scan_range for c in clouds])
+            if all(c.scan_range is not None for c in clouds)
+            else None
+        )
         return PointCloud(
             xyz=np.vstack([c.xyz for c in clouds]),
             rgb=rgb,
             intensity=intensity,
             utm_epsg=clouds[0].utm_epsg,
             gps_time=gps_time,
+            scan_range=scan_range,
         )
 
 
@@ -116,8 +126,18 @@ def _las_to_pointcloud(las: laspy.LasData, utm_epsg: int) -> PointCloud:
         if "gps_time" in las.point_format.dimension_names
         else None
     )
+    scan_range = (
+        np.asarray(las["range"], dtype=np.float32)
+        if "range" in las.point_format.dimension_names
+        else None
+    )
     return PointCloud(
-        xyz=xyz, rgb=rgb, intensity=intensity, utm_epsg=utm_epsg, gps_time=gps_time
+        xyz=xyz,
+        rgb=rgb,
+        intensity=intensity,
+        utm_epsg=utm_epsg,
+        gps_time=gps_time,
+        scan_range=scan_range,
     )
 
 
