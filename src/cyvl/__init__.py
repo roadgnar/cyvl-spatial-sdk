@@ -6,7 +6,7 @@ projection, powered by the same math as Cyvl's production pipeline.
 Quick start:
     >>> import cyvl
     >>> scene = cyvl.load_scene("somerville")
-    >>> frame = scene.frame(scene.frames_near(-71.0995, 42.3876).index[0])
+    >>> frame = scene.nearest_frame(-71.0995, 42.3876)
     >>> pts = frame.points_in_view()       # lidar projected into the photo
     >>> frame.show(overlay=pts)
 """

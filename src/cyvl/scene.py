@@ -147,15 +147,98 @@ class Scene:
         result["distance_m"] = distance[mask]
         return result.sort_values("distance_m")
 
+    def nearest_frame(
+        self,
+        lon: float,
+        lat: float,
+        *,
+        facing: str | None = None,
+        require_image: bool = True,
+        require_lidar: bool = True,
+    ) -> Frame:
+        """The single closest frame to a location, no radius guessing.
+
+        Args:
+            lon: Query longitude.
+            lat: Query latitude.
+            facing: Optionally restrict to "front" or "rear".
+            require_image: Only frames with a public photo (default True).
+            require_lidar: Only frames whose own drive pass has lidar tiles
+                (default True — ~2% of frames lack them and can't drape;
+                no-op when the frames table predates the coverage column).
+
+        Returns:
+            The nearest matching Frame.
+
+        Raises:
+            ValueError: If no frame matches the filters at all.
+        """
+        frames = self.frames
+        mask = np.ones(len(frames), dtype=bool)
+        if facing is not None:
+            mask &= (frames["facing"] == facing).to_numpy()
+        if require_image:
+            mask &= frames["has_public_image"].to_numpy()
+        if require_lidar and "has_lidar_pass" in frames.columns:
+            mask &= frames["has_lidar_pass"].to_numpy()
+        if not mask.any():
+            raise ValueError(
+                f"No frames match facing={facing!r}, require_image={require_image}"
+            )
+
+        query = lonlat_to_utm(lon, lat, 0.0, self.utm_epsg)[0]
+        candidates = frames[mask]
+        distance = np.hypot(
+            candidates["cam_x"].to_numpy() - query[0],
+            candidates["cam_y"].to_numpy() - query[1],
+        )
+        return self.frame(candidates.index[int(np.argmin(distance))])
+
     # ----------------------------------------------------------------- lidar
 
-    def lidar_around(self, x_utm: float, y_utm: float, radius_m: float = 30.0):
+    def vehicle_path(self) -> tuple[np.ndarray, np.ndarray]:
+        """The drive path as (timestamps_s, positions) for range estimation.
+
+        Built from every posed frame, time-sorted. Used to reconstruct
+        per-point capture range when the lidar source lacks the range
+        dimension (the COPC tiles do).
+
+        Returns:
+            Tuple of (N,) seconds-since-epoch and (N, 3) UTM positions.
+        """
+        if not hasattr(self, "_vehicle_path"):
+            ordered = self.frames.sort_values("adjusted_timestamp_us")
+            self._vehicle_path = (
+                ordered["adjusted_timestamp_us"].to_numpy() / 1e6,
+                ordered[["cam_x", "cam_y", "cam_z"]].to_numpy(),
+            )
+        return self._vehicle_path
+
+    def lidar_around(
+        self,
+        x_utm: float,
+        y_utm: float,
+        radius_m: float = 30.0,
+        *,
+        min_range_m: float | None = 3.0,
+        pass_time_s: float | None = None,
+        pass_window_s: float = 60.0,
+    ):
         """Fetch lidar points around a UTM location (see cyvl.lidar).
 
         Args:
             x_utm: Easting in the scene's UTM zone.
             y_utm: Northing in the scene's UTM zone.
             radius_m: Horizontal radius, meters.
+            min_range_m: Drop points captured closer than this to the
+                scanner (vehicle self-hits). None disables.
+            pass_time_s: GPS seconds-since-epoch of a single drive pass
+                (e.g. a frame's adjusted_timestamp). When given, only points
+                captured within pass_window_s of it are loaded — the area is
+                cropped to that one pass per-tile during the fetch, so dense
+                multi-pass intersections don't blow up memory. None loads
+                every pass that covers the area.
+            pass_window_s: Half-width of the single-pass time window, seconds.
 
         Returns:
             PointCloud of the surrounding area.
@@ -164,7 +247,16 @@ class Scene:
 
         if self._lidar_source is None:
             self._lidar_source = LidarSource(self.tiles, self.utm_epsg)
-        return self._lidar_source.fetch_around(x_utm, y_utm, radius_m)
+        time_window = (
+            (pass_time_s, pass_window_s) if pass_time_s is not None else None
+        )
+        cloud = self._lidar_source.fetch_around(
+            x_utm, y_utm, radius_m, time_window=time_window
+        )
+        if min_range_m is not None and len(cloud):
+            path_ts_s, path_xyz = self.vehicle_path()
+            cloud = cloud.crop_min_range(min_range_m, path_ts_s, path_xyz)
+        return cloud
 
     def map(self, layers: tuple[str, ...] = ("rollup", "signs")):
         """Quick folium map of selected layers (viz extra).

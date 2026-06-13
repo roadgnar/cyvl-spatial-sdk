@@ -21,6 +21,7 @@ dependencies = [
 
 [project.optional-dependencies]
 viz = ["matplotlib>=3.7", "folium>=0.15"]
+sam = ["fal-client>=0.5"]
 dev = ["pytest>=8", "pytest-cov", "ruff"]
 
 [project.urls]

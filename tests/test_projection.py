@@ -19,6 +19,15 @@ class TestProjectionRegression:
         )
         np.testing.assert_allclose(projected.depth, expected["depth"], atol=1e-9)
 
+    def test_nearest_frame_never_needs_a_radius(self, scene, frame) -> None:
+        """nearest_frame finds the closest match from any distance."""
+        found = scene.nearest_frame(frame.lon + 0.01, frame.lat + 0.01)
+        assert found.image_url is not None
+        import pytest
+
+        with pytest.raises(ValueError, match="No frames match"):
+            scene.nearest_frame(frame.lon, frame.lat, facing="sideways")
+
     def test_signs_layer_projects_into_frame(self, scene, frame) -> None:
         """At least one nearby sign lands inside the image."""
         signs = scene.signs
@@ -109,3 +118,26 @@ class TestFlatCopc:
             ).sum()
         )
         assert queried == brute > 0
+
+
+class TestSegment:
+    def test_decode_rle_roundtrip(self) -> None:
+        """RLE pairs decode to the expected pixels."""
+        from cyvl.segment import decode_rle
+
+        # 4x5 image: pixels 3..5 and 12..13 set
+        mask = decode_rle([3, 3, 12, 2], 4, 5)
+        expected = np.zeros(20, dtype=bool)
+        expected[3:6] = True
+        expected[12:14] = True
+        np.testing.assert_array_equal(mask.ravel(), expected)
+
+    def test_missing_key_message_is_actionable(self, monkeypatch) -> None:
+        """No key -> error that tells you exactly where to get one."""
+        import pytest
+
+        from cyvl.segment import _resolve_api_key
+
+        monkeypatch.delenv("FAL_KEY", raising=False)
+        with pytest.raises(RuntimeError, match="fal.ai/dashboard/keys"):
+            _resolve_api_key(None)

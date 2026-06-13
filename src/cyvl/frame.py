@@ -211,6 +211,8 @@ class Frame:
         *,
         same_pass: bool = True,
         pass_window_s: float = 5.0,
+        fallback: bool = True,
+        min_range_m: float | None = 3.0,
     ) -> "PointCloud":
         """Fetch the lidar points surrounding this frame's camera position.
 
@@ -225,6 +227,13 @@ class Frame:
             pass_window_s: Half-width of the same-pass window, seconds. The
                 default 5 s balances coverage density against moving-object
                 ghosts; tighten to ~2 s on busy streets.
+            fallback: When the frame's own pass has no delivered lidar
+                (has_lidar_pass == False), substitute the densest nearby
+                pass with a warning. Set False to raise instead.
+            min_range_m: Drop points captured closer than this to the
+                scanner (vehicle self-hits form a floating layer above the
+                road). Uses the true range dimension when present, else the
+                vehicle-path estimate. None disables.
 
         Returns:
             PointCloud in this frame's UTM zone.
@@ -234,11 +243,44 @@ class Frame:
         """
         if self._scene is None:
             raise RuntimeError("Frame has no scene attached; use scene.frame(id)")
+        # min-range filtering happens below, after pass selection (smaller
+        # array) — disable it in the scene-level fetch.
         cloud = self._scene.lidar_around(
-            self.position[0], self.position[1], radius_m=radius_m
+            self.position[0], self.position[1], radius_m=radius_m, min_range_m=None
         )
         if same_pass:
-            cloud = cloud.crop_time(self.adjusted_timestamp_us / 1e6, pass_window_s)
+            capture_s = self.adjusted_timestamp_us / 1e6
+            own_pass = cloud.crop_time(capture_s, pass_window_s)
+            if len(own_pass) == 0 and not fallback:
+                raise ValueError(
+                    f"Frame {self.id} has no lidar from its own pass "
+                    "(see frames table has_lidar_pass). Pick another frame, "
+                    "or pass fallback=True to use the densest nearby pass."
+                )
+            if len(own_pass) == 0 and len(cloud) and cloud.gps_time is not None:
+                # A few workers carry poses but no delivered lidar tiles
+                # (see frames table has_lidar_pass). Fall back to the pass
+                # with the densest coverage here: bin gps_time coarsely and
+                # take the dominant bin (nearest-in-time passes can be ones
+                # that merely clipped the edge of the radius).
+                bins = np.round(cloud.gps_time / 30.0)
+                values, counts = np.unique(bins, return_counts=True)
+                dominant_s = float(values[np.argmax(counts)] * 30.0)
+                gap_h = abs(dominant_s - capture_s) / 3600
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    "Frame %s has no lidar from its own pass; using the "
+                    "densest nearby pass (%.1f h away). Cross-pass alignment "
+                    "may be off by several cm and moving objects will differ.",
+                    self.id,
+                    gap_h,
+                )
+                own_pass = cloud.crop_time(dominant_s, pass_window_s + 30.0)
+            cloud = own_pass
+        if min_range_m is not None and len(cloud):
+            path_ts_s, path_xyz = self._scene.vehicle_path()
+            cloud = cloud.crop_min_range(min_range_m, path_ts_s, path_xyz)
         return cloud
 
     def points_in_view(
@@ -260,7 +302,7 @@ class Frame:
         cloud = self.lidar(radius_m=radius_m, same_pass=same_pass)
         return self.project(cloud.xyz, colors=cloud.rgb, intensity=cloud.intensity)
 
-    def open_viewer(self, radius_m: float = 30.0):
+    def open_viewer(self, radius_m: float = 30.0, block: bool | None = None):
         """Open this frame in the split image/3D browser viewer.
 
         Renders the surrounding lidar through this frame's exact calibrated
@@ -275,7 +317,7 @@ class Frame:
         """
         from cyvl.viewer import open_viewer
 
-        return open_viewer(self, radius_m=radius_m)
+        return open_viewer(self, radius_m=radius_m, block=block)
 
     def show(self, overlay: Projected | None = None, max_points: int = 200_000):
         """Display the frame (and optionally projected points) with matplotlib.

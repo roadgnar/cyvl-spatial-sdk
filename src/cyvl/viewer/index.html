@@ -12,9 +12,11 @@
   #stage { position: absolute; inset: 0; }
   #bgImage { position: absolute; object-fit: fill; pointer-events: none; }
   #hud { position: absolute; top: 10px; left: 10px; background: #161b22cc;
-         padding: 10px 14px; border-radius: 8px; z-index: 10; max-width: 360px; }
+         padding: 10px 14px; border-radius: 8px; z-index: 10; max-width: 380px; }
   #hud b { color: #7ee787; }
-  input[type=range] { width: 140px; vertical-align: middle; }
+  .row { margin: 4px 0; display: flex; align-items: center; gap: 6px; }
+  input[type=range] { width: 150px; }
+  label.toggle { cursor: pointer; user-select: none; }
   #err { color: #ff7b72; }
 </style>
 </head>
@@ -23,8 +25,10 @@
 <img id="bgImage" />
 <div id="hud">
   <div><b id="title">loading…</b></div>
-  <div>image <input id="imgOpacity" type="range" min="0" max="100" value="55" />
-       points <input id="ptSize" type="range" min="1" max="20" value="5" /></div>
+  <div class="row"><span>image</span><input id="blend" type="range" min="0" max="100" value="75" /><span>points</span></div>
+  <div class="row"><span>size</span><input id="ptSize" type="range" min="1" max="20" value="5" />
+    <label class="toggle"><input id="rgbToggle" type="checkbox" /> RGB colors</label></div>
+  <div class="row"><span>hide capture-range &lt;</span><input id="minRange" type="range" min="0" max="80" value="30" step="1" /><span id="minRangeVal">3.0 m</span></div>
   <div>drag to orbit · double-click to reset to camera view</div>
   <div id="err"></div>
 </div>
@@ -45,7 +49,6 @@ renderer.setClearColor(0x000000, 0);
 stage.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera();
-camera.matrixAutoUpdate = true;
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enabled = false;
 renderer.domElement.addEventListener('pointerdown', () => { controls.enabled = true; });
@@ -57,6 +60,20 @@ renderer.domElement.addEventListener('dblclick', () => {
 });
 
 let intr = null;
+
+// Matplotlib viridis, 16 anchor stops (linearly interpolated).
+const VIRIDIS = [
+  [0.267,0.005,0.329],[0.283,0.131,0.449],[0.277,0.231,0.518],[0.254,0.323,0.553],
+  [0.221,0.412,0.564],[0.190,0.493,0.558],[0.164,0.571,0.541],[0.139,0.647,0.511],
+  [0.158,0.718,0.457],[0.267,0.785,0.379],[0.428,0.841,0.273],[0.622,0.882,0.158],
+  [0.815,0.905,0.110],[0.945,0.899,0.151],[0.993,0.906,0.144],[0.993,0.906,0.144]
+];
+function viridis(t) {
+  const x = Math.min(Math.max(t, 0), 1) * (VIRIDIS.length - 1);
+  const i = Math.floor(x), f = x - i;
+  const a = VIRIDIS[i], b = VIRIDIS[Math.min(i + 1, VIRIDIS.length - 1)];
+  return [a[0] + (b[0]-a[0])*f, a[1] + (b[1]-a[1])*f, a[2] + (b[2]-a[2])*f];
+}
 
 // OpenCV pinhole intrinsics -> OpenGL projection (row-major args).
 function intrinsicsProjectionMatrix(fx, fy, cx, cy, W, H, near, far) {
@@ -85,9 +102,6 @@ function resize() {
   el.style.width = `${cw}px`; el.style.height = `${ch}px`;
   bg.style.left = el.style.left; bg.style.top = el.style.top;
   bg.style.width = el.style.width; bg.style.height = el.style.height;
-  camera.projectionMatrix.copy(
-    intrinsicsProjectionMatrix(intr.fx, intr.fy, intr.cx, intr.cy, intr.W, intr.H, 0.5, 400));
-  camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
 }
 window.addEventListener('resize', resize);
 
@@ -99,8 +113,11 @@ function animate() {
     camera.quaternion.identity();
     camera.updateMatrixWorld(true);
   }
-  if (intr) camera.projectionMatrix.copy(
-    intrinsicsProjectionMatrix(intr.fx, intr.fy, intr.cx, intr.cy, intr.W, intr.H, 0.5, 400));
+  if (intr) {
+    camera.projectionMatrix.copy(
+      intrinsicsProjectionMatrix(intr.fx, intr.fy, intr.cx, intr.cy, intr.W, intr.H, 0.5, 400));
+    camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
+  }
   renderer.render(scene, camera);
 }
 animate();
@@ -111,35 +128,79 @@ async function main() {
     document.getElementById('title').textContent = data.frame_id;
     intr = data.intrinsics;
     bg.src = 'image.jpg';
-    bg.style.opacity = 0.55;
 
-    // points.bin: N float32 xyz (camera-relative world axes) + N uint8 rgb.
+    // points.bin: N f32 xyz (camera frame) | N u8 intensity | N u8 range(0.1m) | N u8 rgb.
     const buf = await (await fetch('points.bin')).arrayBuffer();
     const n = data.point_count;
     const xyz = new Float32Array(buf, 0, n * 3);
-    const rgb = new Uint8Array(buf, n * 12, n * 3);
+    const inten = new Uint8Array(buf, n * 12, n);
+    const rangeDm = new Uint8Array(buf, n * 13, n);
+    const rgb = new Uint8Array(buf, n * 14, n * 3);
 
-    // Points arrive already in the CAMERA frame (OpenCV: x right, y down,
-    // z forward); flip to OpenGL (y up, -z forward).
+    // OpenCV camera axes (x right, y down, z forward) -> OpenGL (y up, -z).
     const pos = new Float32Array(n * 3);
-    const col = new Float32Array(n * 3);
+    const colViridis = new Float32Array(n * 3);
+    const colRgb = new Float32Array(n * 3);
     for (let i = 0; i < n; i++) {
       pos[3*i]   = xyz[3*i];
       pos[3*i+1] = -xyz[3*i+1];
       pos[3*i+2] = -xyz[3*i+2];
-      col[3*i]   = rgb[3*i] / 255;
-      col[3*i+1] = rgb[3*i+1] / 255;
-      col[3*i+2] = rgb[3*i+2] / 255;
+      const v = viridis(inten[i] / 255);
+      colViridis[3*i] = v[0]; colViridis[3*i+1] = v[1]; colViridis[3*i+2] = v[2];
+      colRgb[3*i] = rgb[3*i]/255; colRgb[3*i+1] = rgb[3*i+1]/255; colRgb[3*i+2] = rgb[3*i+2]/255;
     }
     const geom = new THREE.BufferGeometry();
     geom.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    geom.setAttribute('color', new THREE.BufferAttribute(col, 3));
-    const mat = new THREE.PointsMaterial({ size: 0.05, vertexColors: true });
+    geom.setAttribute('color', new THREE.BufferAttribute(colViridis, 3));
+    const mat = new THREE.PointsMaterial({
+      size: 0.05, vertexColors: true, transparent: true, opacity: 1.0,
+    });
     scene.add(new THREE.Points(geom, mat));
     controls.target.set(0, 0, -10);
 
-    document.getElementById('imgOpacity').oninput = e => { bg.style.opacity = e.target.value / 100; };
+    // Capture-range filter: rebuild compacted buffers when the threshold
+    // moves. Proves/strips short-range returns (vehicle self-hits).
+    let useRgb = false;
+    function applyRangeFilter() {
+      const minDm = Number(document.getElementById('minRange').value);
+      document.getElementById('minRangeVal').textContent = (minDm / 10).toFixed(1) + ' m';
+      const src = useRgb ? colRgb : colViridis;
+      let kept = 0;
+      const fpos = new Float32Array(n * 3), fcol = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) {
+        if (rangeDm[i] < minDm) continue;
+        fpos[3*kept] = pos[3*i]; fpos[3*kept+1] = pos[3*i+1]; fpos[3*kept+2] = pos[3*i+2];
+        fcol[3*kept] = src[3*i]; fcol[3*kept+1] = src[3*i+1]; fcol[3*kept+2] = src[3*i+2];
+        kept++;
+      }
+      geom.setAttribute('position', new THREE.BufferAttribute(fpos.subarray(0, kept * 3), 3));
+      geom.setAttribute('color', new THREE.BufferAttribute(fcol.subarray(0, kept * 3), 3));
+      geom.attributes.position.needsUpdate = true;
+      geom.attributes.color.needsUpdate = true;
+      geom.setDrawRange(0, kept);
+      geom.computeBoundingSphere();
+      document.getElementById('title').textContent =
+        `${data.frame_id} — ${kept.toLocaleString()} / ${n.toLocaleString()} pts`;
+    }
+    document.getElementById('minRange').addEventListener('change', applyRangeFilter);
+    applyRangeFilter();  // default 3.0 m on load — matches the SDK's min_range_m
+
+    // One blend control: left = photo, right = points. Crossfade so the
+    // direction always matches the labels.
+    const blend = document.getElementById('blend');
+    function applyBlend() {
+      const t = blend.value / 100;          // 0 = image, 1 = points
+      mat.opacity = Math.min(1, 0.15 + t);  // points fade out toward "image"
+      bg.style.opacity = 1 - 0.75 * t;      // photo fades out toward "points"
+    }
+    blend.oninput = applyBlend;
+    applyBlend();                            // default 75: points clearly visible
+
     document.getElementById('ptSize').oninput = e => { mat.size = e.target.value / 100; };
+    document.getElementById('rgbToggle').onchange = e => {
+      useRgb = e.target.checked;
+      applyRangeFilter();
+    };
     resize();
   } catch (e) {
     document.getElementById('err').textContent = String(e);

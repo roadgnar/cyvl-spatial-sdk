@@ -100,6 +100,16 @@ def scene_map(scene: "Scene", layers: tuple[str, ...] = ("rollup", "signs")):
         # Sample large layers so the map stays responsive in a notebook.
         if len(gdf) > 5000:
             gdf = gdf.sample(5000, random_state=0)
-        folium.GeoJson(gdf.to_json(), name=name).add_to(fmap)
+        # Point layers as small circle markers — default Leaflet pins are
+        # huge and thousands of them bury every other layer.
+        is_points = gdf.geometry.geom_type.isin(["Point"]).all()
+        marker = (
+            folium.CircleMarker(
+                radius=3, weight=0, fill=True, fill_opacity=0.7, color="#c0392b"
+            )
+            if is_points
+            else None
+        )
+        folium.GeoJson(gdf.to_json(), name=name, marker=marker).add_to(fmap)
     folium.LayerControl().add_to(fmap)
     return fmap
