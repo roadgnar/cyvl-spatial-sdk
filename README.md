@@ -99,6 +99,13 @@ Good to know:
 - A small set of frames (2.3%, `has_lidar_pass == False`) have poses but no
   own-pass LiDAR; the SDK falls back to the densest nearby pass with a warning.
 
+## Get the data
+
+The dataset is also hosted in a public, read-only S3 bucket (`cyvl-hackathon`). See
+the [**S3 access guide**](S3_GUIDE.md) for every way to list, download, or query
+it directly — with AWS credentials, anonymously via `--no-sign-request`, or over
+plain HTTPS with no AWS tooling at all.
+
 ## Architecture
 
 `Scene`/`Frame` are written against a `DataBackend` protocol. The hackathon ships
