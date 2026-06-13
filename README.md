@@ -59,7 +59,6 @@ Scripts (`python examples/scripts/<name>.py --help`):
 | | What it produces |
 |---|---|
 | [`export_nerfstudio.py`](examples/scripts/export_nerfstudio.py) | `transforms.json` + images for any neighborhood — train **NeRFs / Gaussian Splats** on real streets, no COLMAP |
-| [`build_sign_dataset.py`](examples/scripts/build_sign_dataset.py) | Labeled sign image crops + CSV — instant **CV training data** |
 | [`make_depth_map.py`](examples/scripts/make_depth_map.py) | LiDAR **depth maps** (npz + preview) aligned to any photo |
 | [`export_ply.py`](examples/scripts/export_ply.py) | Colored **PLY of any block** for CloudCompare / Blender / CAD |
 
