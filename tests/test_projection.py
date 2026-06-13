@@ -118,3 +118,27 @@ class TestFlatCopc:
             ).sum()
         )
         assert queried == brute > 0
+
+
+class TestSegment:
+    def test_decode_rle_roundtrip(self) -> None:
+        """RLE pairs decode to the expected pixels."""
+        from cyvl.segment import decode_rle
+
+        # 4x5 image: pixels 3..5 and 12..13 set
+        mask = decode_rle([3, 3, 12, 2], 4, 5)
+        expected = np.zeros(20, dtype=bool)
+        expected[3:6] = True
+        expected[12:14] = True
+        np.testing.assert_array_equal(mask.ravel(), expected)
+
+    def test_missing_key_message_is_actionable(self, monkeypatch) -> None:
+        """No key -> error that tells you exactly where to get one."""
+        import pytest
+
+        from cyvl.segment import _resolve_api_key
+
+        monkeypatch.delenv("FAL_KEY", raising=False)
+        monkeypatch.chdir("/tmp")
+        with pytest.raises(RuntimeError, match="fal.ai/dashboard/keys"):
+            _resolve_api_key(None)

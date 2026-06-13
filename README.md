@@ -60,7 +60,21 @@ Scripts (`python examples/scripts/<name>.py --help`):
 |---|---|
 | [`export_nerfstudio.py`](examples/scripts/export_nerfstudio.py) | `transforms.json` + images for any neighborhood — train **NeRFs / Gaussian Splats** on real streets, no COLMAP |
 | [`make_depth_map.py`](examples/scripts/make_depth_map.py) | LiDAR **depth maps** (npz + preview) aligned to any photo |
+| [`find_anything.py`](examples/scripts/find_anything.py) | **Text prompt → 3D coordinates**: SAM3 masks lifted through the LiDAR (needs a [fal.ai](https://fal.ai/dashboard/keys) key) |
 | [`export_ply.py`](examples/scripts/export_ply.py) | Colored **PLY of any block** for CloudCompare / Blender / CAD |
+
+## SAM3 segmentation (optional)
+
+`pip install "cyvl[sam]"`, grab a free key at [fal.ai/dashboard/keys](https://fal.ai/dashboard/keys),
+and either `export FAL_KEY="..."` or drop a `FAL_KEY=...` line in a `.env` file
+next to your notebook. Then anything you can name becomes a 3D measurement:
+
+```python
+from cyvl.segment import locate
+
+hits = locate(frame, "fire hydrant")     # SAM3 mask -> same-pass LiDAR -> 3D
+print(hits[0].lonlat, hits[0].distance_m)
+```
 
 ## The data
 
