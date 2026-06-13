@@ -106,14 +106,6 @@ the [**S3 access guide**](S3_GUIDE.md) for every way to list, download, or query
 it directly — with AWS credentials, anonymously via `--no-sign-request`, or over
 plain HTTPS with no AWS tooling at all.
 
-## Architecture
-
-`Scene`/`Frame` are written against a `DataBackend` protocol. The hackathon ships
-`ParquetBackend` (static artifacts over CDN); the same seam can be served live
-from Cyvl's spatial database without touching user code. Projection math under
-`cyvl/_vendor/` is copied verbatim from Cyvl's production monorepo and stamped
-with its source commit (`scripts/vendor_sync.py`).
-
 ## Development
 
 ```bash
