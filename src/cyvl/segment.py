@@ -51,8 +51,9 @@ def _resolve_api_key(api_key: str | None) -> str:
     env_file = Path(".env")
     if env_file.exists():
         for line in env_file.read_text().splitlines():
-            if line.strip().startswith("FAL_KEY="):
-                return line.split("=", 1)[1].strip().strip("\"'")
+            stripped = line.strip().removeprefix("export ").strip()
+            if stripped.startswith("FAL_KEY="):
+                return stripped.split("=", 1)[1].strip().strip("\"'")
     raise RuntimeError(
         "No fal.ai API key found. Create one at "
         f"{SIGNUP_URL} then either `export FAL_KEY=...` or put a "
