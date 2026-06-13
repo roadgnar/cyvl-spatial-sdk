@@ -9,3 +9,4 @@ build/
 .ipynb_checkpoints/
 exports/
 .DS_Store
+.env
