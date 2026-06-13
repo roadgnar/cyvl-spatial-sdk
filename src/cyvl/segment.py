@@ -3,9 +3,7 @@
 Powered by fal.ai's hosted SAM3 endpoint. Needs an API key:
 
 1. Create one at https://fal.ai/dashboard/keys
-2. Provide it either way:
-   - environment:  export FAL_KEY="key-id:key-secret"
-   - or a .env file in your working directory with a FAL_KEY=... line
+2. export FAL_KEY="key-id:key-secret"   (or pass api_key= explicitly)
 
 Install the extra:  pip install "cyvl[sam]"
 
@@ -39,7 +37,7 @@ ENDPOINT = "fal-ai/sam-3/image-rle"
 
 
 def _resolve_api_key(api_key: str | None) -> str:
-    """Find the fal.ai key: explicit arg > FAL_KEY env > ./.env file.
+    """Find the fal.ai key: explicit argument, else the FAL_KEY env var.
 
     Raises:
         RuntimeError: With setup instructions when no key is found.
@@ -48,16 +46,9 @@ def _resolve_api_key(api_key: str | None) -> str:
         return api_key
     if os.environ.get("FAL_KEY"):
         return os.environ["FAL_KEY"]
-    env_file = Path(".env")
-    if env_file.exists():
-        for line in env_file.read_text().splitlines():
-            stripped = line.strip().removeprefix("export ").strip()
-            if stripped.startswith("FAL_KEY="):
-                return stripped.split("=", 1)[1].strip().strip("\"'")
     raise RuntimeError(
-        "No fal.ai API key found. Create one at "
-        f"{SIGNUP_URL} then either `export FAL_KEY=...` or put a "
-        "FAL_KEY=... line in a .env file next to your notebook/script."
+        f"No fal.ai API key found. Create one at {SIGNUP_URL}, then "
+        "`export FAL_KEY=...` before launching (or pass api_key=...)."
     )
 
 
@@ -119,7 +110,7 @@ def segment(
         image: A cyvl Frame, an RGB ndarray, or an image path.
         prompt: What to segment, in plain text ("traffic sign", "pothole").
         max_masks: Maximum masks to return (1-32).
-        api_key: fal.ai key; defaults to FAL_KEY env or ./.env.
+        api_key: fal.ai key; defaults to the FAL_KEY env var.
 
     Returns:
         Segmentation with (N, H, W) boolean masks, scores, and boxes.
@@ -221,7 +212,7 @@ def locate(
         max_masks: Maximum objects to return.
         radius_m: LiDAR fetch radius around the camera.
         min_points: Minimum masked lidar points for a confident result.
-        api_key: fal.ai key; defaults to FAL_KEY env or ./.env.
+        api_key: fal.ai key; defaults to the FAL_KEY env var.
 
     Returns:
         Located objects (may be fewer than the mask count when masks have

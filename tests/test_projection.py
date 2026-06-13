@@ -139,6 +139,5 @@ class TestSegment:
         from cyvl.segment import _resolve_api_key
 
         monkeypatch.delenv("FAL_KEY", raising=False)
-        monkeypatch.chdir("/tmp")
         with pytest.raises(RuntimeError, match="fal.ai/dashboard/keys"):
             _resolve_api_key(None)

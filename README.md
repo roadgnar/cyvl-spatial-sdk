@@ -24,9 +24,9 @@ print(m)                                       # Measurement(3.95 m / 12.96 ft)
 frame.open_viewer()                            # photo + 3D in your browser
 ```
 
-| Database signs projected onto their poles | Same-pass LiDAR drape (intensity ramp) |
+| `locate(frame, "traffic sign")` — SAM3 masks lifted to 3D via LiDAR | Same-pass LiDAR drape (intensity ramp) |
 |---|---|
-| ![sign projection](docs/images/sign_projection.jpg) | ![points in view](docs/images/points_in_view.jpg) |
+| ![text to 3D](docs/images/sign_projection.jpg) | ![points in view](docs/images/points_in_view.jpg) |
 
 ## What's in the box
 
@@ -66,8 +66,8 @@ Scripts (`python examples/scripts/<name>.py --help`):
 ## SAM3 segmentation (optional)
 
 `pip install "cyvl[sam]"`, grab a free key at [fal.ai/dashboard/keys](https://fal.ai/dashboard/keys),
-and either `export FAL_KEY="..."` or drop a `FAL_KEY=...` line in a `.env` file
-next to your notebook. Then anything you can name becomes a 3D measurement:
+and `export FAL_KEY="..."` (notebooks: `os.environ["FAL_KEY"] = "..."`, or pass
+`api_key=` to any call). Then anything you can name becomes a 3D measurement:
 
 ```python
 from cyvl.segment import locate
