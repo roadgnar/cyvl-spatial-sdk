@@ -228,7 +228,12 @@ class LidarSource:
         return hits
 
     def fetch_around(
-        self, x_utm: float, y_utm: float, radius_m: float = 30.0
+        self,
+        x_utm: float,
+        y_utm: float,
+        radius_m: float = 30.0,
+        *,
+        time_window: tuple[float, float] | None = None,
     ) -> PointCloud:
         """Fetch and crop lidar points around a UTM location.
 
@@ -239,6 +244,12 @@ class LidarSource:
             x_utm: Easting.
             y_utm: Northing.
             radius_m: Horizontal radius, meters.
+            time_window: Optional (center_s, half_width_s) GPS-time window.
+                Each tile's points are cropped to this single drive pass
+                immediately after reading — before tiles are concatenated —
+                so a busy intersection scanned by many passes never
+                materializes all of them at once (the merged all-pass cloud
+                can be 4x the single-pass cloud and blow up memory).
 
         Returns:
             Cropped PointCloud (possibly empty if no tiles cover the area).
@@ -259,6 +270,8 @@ class LidarSource:
                 x_max=x_utm + radius_m,
                 y_max=y_utm + radius_m,
             )
+            if time_window is not None:
+                cloud = cloud.crop_time(*time_window)
             clouds.append(cloud)
         merged = PointCloud.concatenate(clouds)
         merged.utm_epsg = self.utm_epsg

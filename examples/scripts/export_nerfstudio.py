@@ -79,6 +79,11 @@ def main() -> None:
     parser.add_argument("--max-frames", type=int, default=300)
     parser.add_argument("--seed-points", type=int, default=1_500_000)
     parser.add_argument(
+        "--pass-window", type=float, default=60.0,
+        help="Half-width (s) of the single LiDAR pass kept around the anchor "
+             "frame; smaller = tighter single pass, less memory",
+    )
+    parser.add_argument(
         "--all-passes", action="store_true",
         help="Keep frames from every capture pass (mixed lighting)",
     )
@@ -135,10 +140,19 @@ def main() -> None:
 
     # LiDAR seed cloud from the SAME pass, in the same shifted world frame —
     # splatfacto initializes gaussians from it instead of random points.
+    # Crop to that one pass *during* the fetch: a busy area is scanned by many
+    # passes, and merging all of them is both wrong (mixed lighting, ghosting)
+    # and an OOM risk — the all-pass cloud here is ~4x the single-pass one.
     center = lonlat_to_utm(args.lon, args.lat, 0.0, scene.utm_epsg)[0]
-    cloud = scene.lidar_around(center[0], center[1], radius_m=args.radius + 15)
     anchor = scene.frame(frame_ids[0])
-    cloud = cloud.crop_time(anchor.adjusted_timestamp_us / 1e6, 60.0)
+    pass_time_s = anchor.adjusted_timestamp_us / 1e6
+    cloud = scene.lidar_around(
+        center[0],
+        center[1],
+        radius_m=args.radius + 15,
+        pass_time_s=pass_time_s,
+        pass_window_s=args.pass_window,
+    )
     if len(cloud) > args.seed_points:
         pick = np.sort(
             np.random.default_rng(0).choice(len(cloud), args.seed_points, replace=False)

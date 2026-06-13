@@ -8,5 +8,6 @@ build/
 .ruff_cache/
 .ipynb_checkpoints/
 exports/
+outputs/
 .DS_Store
 .env
