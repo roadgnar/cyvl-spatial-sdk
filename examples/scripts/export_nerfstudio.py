@@ -5,6 +5,11 @@ Writes transforms.json + images/ + a LiDAR seed point cloud for a neighborhood:
     python export_nerfstudio.py --lon -71.0944 --lat 42.3865 --radius 80
     ns-train splatfacto --data exports/nerfstudio_scene
 
+NOTE: expect to tune the training run. A naive default `splatfacto` run
+(30k iterations) did not produce a good result on this data — plan on
+adjusting things like the iteration count, learning rates, densification
+schedule, and the export radius before you get clean geometry.
+
 Two things this does that the usual COLMAP workflow can't:
 
 - Poses and intrinsics come from Cyvl's production SLAM + calibration —
