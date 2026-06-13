@@ -4,7 +4,8 @@ version = "0.1.0"
 description = "Build on Cyvl's physical-world data: street imagery, LiDAR, and infrastructure layers with full 3D<->2D projection"
 readme = "README.md"
 authors = [{ name = "Cyvl", email = "hello@cyvl.ai" }]
-license = { text = "Apache-2.0" }
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 requires-python = ">=3.10"
 dependencies = [
     "geopandas>=1.0",
