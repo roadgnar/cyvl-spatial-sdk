@@ -36,6 +36,93 @@ class Projected:
         return len(self.pixels)
 
 
+# Occlusion handling in Frame.unproject. A vehicle-mounted scanner records
+# surfaces the camera cannot see (it sweeps past parked cars, poles and trees
+# from many positions during a pass), and those points still project onto
+# the occluder in the photo. The image is divided into grid-aligned square
+# cells of OCCLUSION_CELL_PX pixels. A cell's front depth is the depth of its
+# OCCLUSION_MIN_POINTS-th nearest point (so a single stray return cannot
+# hide a surface), and points more than OCCLUSION_DEPTH_MARGIN (relative)
+# behind that front are ignored. A car 10 m away in front of a wall 20 m
+# away therefore hides the wall points that land on the car.
+#
+# If no cell around the pixel has points more than the margin behind its
+# front, nothing is ignored and the result is exactly the plain nearest
+# projection. That holds on a single surface seen at a grazing angle as
+# long as its depth changes by less than the margin across one cell: about
+# cell / (fx * tan(grazing angle)), i.e. ~6% for a road 30 m from a 2.1 m
+# camera with fx ~1840 px. Known limits of this heuristic:
+#   * background within about one cell of an occluder's outline can take the
+#     occluder's depth (outlines grow by up to one cell);
+#   * occluders sampled more sparsely than one point per cell are only
+#     partly handled;
+#   * surfaces closer together than the margin are not separated;
+#   * a road beyond ~45 m from a ~2 m camera exceeds the margin within a cell
+#     and its far part can be hidden (the default 30 m fetch is inside this).
+OCCLUSION_CELL_PX = 8.0
+OCCLUSION_DEPTH_MARGIN = 0.1
+OCCLUSION_MIN_POINTS = 2
+
+
+def _nearest_visible(
+    pixels: np.ndarray,
+    depth: np.ndarray,
+    distances: np.ndarray,
+    px: float,
+    py: float,
+    tolerance: float,
+    cell: float,
+) -> int | None:
+    """Index of the nearest-projecting visible return within tolerance.
+
+    Args:
+        pixels: (N, 2) projections of the in-view returns.
+        depth: (N,) their distances from the camera centre.
+        distances: (N,) their pixel distances from the query (px, py).
+        px: Query pixel x.
+        py: Query pixel y.
+        tolerance: Max pixel distance for a match.
+        cell: Occlusion cell size in pixels.
+
+    Returns:
+        Index into the inputs, or None when every return within tolerance
+        is hidden behind a nearer surface.
+    """
+    # Every cell overlapping the tolerance window, taken whole, so the
+    # per-cell test is identical to running it over the whole image. The
+    # loose bounding square keeps the work proportional to the window.
+    reach = tolerance + 2 * cell
+    near = np.flatnonzero(
+        (np.abs(pixels[:, 0] - px) <= reach) & (np.abs(pixels[:, 1] - py) <= reach)
+    )
+    cell_x = np.floor(pixels[near, 0] / cell)
+    cell_y = np.floor(pixels[near, 1] / cell)
+    whole = (
+        (cell_x >= np.floor((px - tolerance) / cell))
+        & (cell_x <= np.floor((px + tolerance) / cell))
+        & (cell_y >= np.floor((py - tolerance) / cell))
+        & (cell_y <= np.floor((py + tolerance) / cell))
+    )
+    local, cell_x, cell_y = near[whole], cell_x[whole], cell_y[whole]
+    if local.size == 0:
+        return None
+    # Group by cell (sorted by depth within each), take each cell's front
+    # depth, and keep points within the margin of it.
+    order = np.lexsort((depth[local], cell_x, cell_y))
+    sorted_x, sorted_y, sorted_depth = cell_x[order], cell_y[order], depth[local][order]
+    starts = np.flatnonzero(
+        np.r_[True, (sorted_x[1:] != sorted_x[:-1]) | (sorted_y[1:] != sorted_y[:-1])]
+    )
+    sizes = np.diff(np.r_[starts, len(order)])
+    front = sorted_depth[starts + np.minimum(sizes, OCCLUSION_MIN_POINTS) - 1]
+    keep = sorted_depth <= np.repeat(front, sizes) * (1.0 + OCCLUSION_DEPTH_MARGIN)
+    visible = local[order[keep]]
+    visible = np.sort(visible[distances[visible] <= tolerance])  # ties -> lowest index
+    if visible.size == 0:
+        return None
+    return int(visible[np.argmin(distances[visible])])
+
+
 class Frame:
     """A single posed image: project world points in, unproject pixels out."""
 
@@ -162,11 +249,14 @@ class Frame:
         depth: float | None = None,
         lidar: "PointCloud | None" = None,
         pixel_tolerance: float = 12.0,
+        occlusion_cell_px: float | None = OCCLUSION_CELL_PX,
     ) -> np.ndarray:
         """Lift a pixel back to a 3D world point.
 
         Depth comes from (in priority order) the explicit `depth` argument,
-        or the lidar point whose projection lands nearest the query pixel.
+        or the lidar point whose projection lands nearest the query pixel,
+        ignoring points that a simple per-cell occlusion test marks as hidden
+        behind a nearer surface (see `occlusion_cell_px`).
 
         Args:
             px: Pixel x coordinate.
@@ -175,14 +265,30 @@ class Frame:
             lidar: Point cloud to source depth from (default: fetch this
                 frame's surroundings via the scene).
             pixel_tolerance: Max pixel distance for the lidar depth match.
+            occlusion_cell_px: The scanner records surfaces hidden from the
+                camera (behind parked cars, poles, trees), and those points
+                still project onto the occluder in the photo. The image is
+                split into grid-aligned square cells of this many pixels;
+                within each cell, points more than OCCLUSION_DEPTH_MARGIN
+                (10%) behind the cell's front (its second-nearest point) are
+                ignored before the nearest-projection match. Background
+                within about one cell of an occluder's outline can take the
+                occluder's depth. None uses the plain nearest projection
+                (the behavior before this option existed).
 
         Returns:
             (3,) UTM world point.
 
         Raises:
-            ValueError: If no depth source is available or no lidar point
-                projects within tolerance of the pixel.
+            ValueError: If no depth source is available, no lidar point
+                projects within tolerance of the pixel, every point within
+                tolerance is hidden, or `occlusion_cell_px` is not a positive
+                finite number (or None).
         """
+        if occlusion_cell_px is not None and not 0 < occlusion_cell_px < float("inf"):
+            raise ValueError(
+                "occlusion_cell_px must be a positive, finite pixel size, or None"
+            )
         ray_camera = self.camera.unproject([[px, py]])[0]
 
         if depth is None:
@@ -200,6 +306,25 @@ class Frame:
                     f"Nearest lidar point is {distances[best]:.1f}px away "
                     f"(> {pixel_tolerance}px tolerance) — no depth at this pixel"
                 )
+            if occlusion_cell_px is not None:
+                if not (np.isfinite(px) and np.isfinite(py)):
+                    raise ValueError(f"Pixel ({px}, {py}) is not finite")
+                visible = _nearest_visible(
+                    projected.pixels[candidates],
+                    projected.depth[candidates],
+                    distances,
+                    px,
+                    py,
+                    pixel_tolerance,
+                    occlusion_cell_px,
+                )
+                if visible is None:
+                    raise ValueError(
+                        "Every lidar point within tolerance of this pixel is "
+                        "hidden behind a nearer surface — no visible depth "
+                        "(occlusion_cell_px=None uses the nearest projection)"
+                    )
+                best = visible
             depth = float(projected.depth[candidates[best]])
 
         point_camera = ray_camera * depth

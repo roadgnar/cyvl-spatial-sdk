@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from cyvl.frame import OCCLUSION_CELL_PX
+
 if TYPE_CHECKING:
     from cyvl.frame import Frame
     from cyvl.lidar import PointCloud
@@ -33,6 +35,7 @@ def measure(
     *,
     lidar: "PointCloud | None" = None,
     pixel_tolerance: float = 12.0,
+    occlusion_cell_px: float | None = OCCLUSION_CELL_PX,
 ) -> Measurement:
     """Measure the real-world distance between two pixels of a frame.
 
@@ -45,14 +48,20 @@ def measure(
         px_b: Second pixel (x, y).
         lidar: Optional pre-fetched point cloud to source depth from.
         pixel_tolerance: Max pixel distance for lidar depth matching.
+        occlusion_cell_px: Occlusion handling, see `Frame.unproject`
+            (None = plain nearest projection).
 
     Returns:
         Measurement with distance and both 3D endpoints.
     """
     if lidar is None:
         lidar = frame.lidar()
-    point_a = frame.unproject(*px_a, lidar=lidar, pixel_tolerance=pixel_tolerance)
-    point_b = frame.unproject(*px_b, lidar=lidar, pixel_tolerance=pixel_tolerance)
+    kwargs = {
+        "pixel_tolerance": pixel_tolerance,
+        "occlusion_cell_px": occlusion_cell_px,
+    }
+    point_a = frame.unproject(*px_a, lidar=lidar, **kwargs)
+    point_b = frame.unproject(*px_b, lidar=lidar, **kwargs)
     return Measurement(
         meters=float(np.linalg.norm(point_a - point_b)),
         point_a=point_a,

@@ -92,6 +92,13 @@ Good to know:
   merged cloud, `pass_window_s` to tune; ~2 s suits busy streets).
 - **No dynamic-object classification** in this dataset — moving vehicles are in
   the point clouds; the same-pass time window is the mitigation.
+- **Occlusion-aware depth**: the scanner records surfaces the camera can't see
+  (behind parked cars, poles, trees), and those points still project onto the
+  occluder in the photo. `unproject`/`measure` ignore points more than 10%
+  behind the front surface of their 8 px image cell before matching
+  (`occlusion_cell_px=None` restores the plain nearest projection). It is a
+  heuristic: outlines can grow by about one cell, and very sparse occluders
+  are only partly handled.
 - **Sign coverage is partial**: the signs layer covers the city's south/southeast
   only — that's the extent of the delivered sign survey (verified against Cyvl's
   production API, not a data loss). Pavement/distress/imagery layers are city-wide.
